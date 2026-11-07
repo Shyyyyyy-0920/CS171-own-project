@@ -96,6 +96,7 @@ struct State {
   bool isHit = false; // 用来表示是否选中控制点
   NPCPoints dragPoint{};
   bool showLoopMesh = false; // false时是显示原来的曲面模型，true是用于loop细分的四面体
+  usize loopLevel = 0;
 };
 } // namespace
 
@@ -167,10 +168,12 @@ void OnKey(GLFWwindow *window, int key, int, int action, int) {
     state.showLoopMesh = false;
     break;
   case GLFW_KEY_5:
+    if (!state.showLoopMesh)
+      state.reframe = true;
     state.showLoopMesh = true;
     state.remesh = true;
-    state.reframe = true;
     state.isHit = false;
+    state.loopLevel += 1;
     break;
   case GLFW_KEY_LEFT_BRACKET:
     state.resolution = std::max<usize>(state.resolution / 2, 1);
@@ -544,6 +547,8 @@ void Main(int argc, char **argv) {
       if (state.showLoopMesh) {
         patches.reset();
         auto data = MakeTetrahedronMesh();
+        for (int i = 0; i < state.loopLevel; ++i)
+          data = SubdivideLoopOnce(data);
         triangleCount = data.triangles.size();
         mesh = std::make_unique<Mesh>(data);
       } else if (state.gpu && model.bezier) {
