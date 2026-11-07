@@ -1,0 +1,5 @@
+{
+    "cmake.sourceDirectory": "E:/CS171/output/robot-lab/app",
+    "cmake.buildDirectory": "${workspaceFolder}/app/build-vscode",
+    "C_Cpp.default.compilerPath": "E:/mingw64/bin/gcc.exe"
+}

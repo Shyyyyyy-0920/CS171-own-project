@@ -1,0 +1,284 @@
+#pragma once
+
+/// \file
+/// \brief This file defines a fully‐constexpr "constant wrapper" type that
+/// can carry an arbitrary compile‐time value.
+
+//
+//
+//
+//
+//
+#include "Arietta/Arietta.hpp"
+
+#include <cmath>
+
+namespace arietta {
+
+template <auto v>
+struct C {
+  using type = C;
+  using value_type = decltype(v);
+
+  static constexpr auto value = v;
+
+  [[nodiscard]] ARIETTA_SPECIFIER constexpr operator value_type() const noexcept { return value; }
+
+  C() = default;
+
+  //! Mimic constructor; it only makes `C` behave more like a `value_type` in use.
+  template <auto w>
+    requires(
+        //! `w` must be list-initializable `{}`, not direct-initializable `()`, as `value_type`.
+        //! This makes the constructor impose stricter requirements on types.
+        requires { value_type{w}; } &&
+        []() {
+          value_type x{w};
+          return x == v;
+        }()
+    )
+  ARIETTA_SPECIFIER constexpr C(C<w>) noexcept {}
+
+  //! Mimic assignment operator; likewise.
+  template <auto w>
+    requires(
+        requires { std::declval<value_type &>() = w; } &&
+        []() {
+          value_type x{v}; //! `value_type` is assumed to be at least copy-constructible.
+          x = w;
+          return x == v;
+        }()
+    )
+  ARIETTA_SPECIFIER constexpr C &operator=(C<w>) noexcept {
+    return *this;
+  }
+};
+
+//
+//
+//
+namespace is {
+
+namespace detail::constant {
+
+template <typename>
+struct IsC : std::false_type {};
+
+template <auto v>
+struct IsC<C<v>> : std::true_type {};
+
+} // namespace detail::constant
+
+template <typename T>
+concept C = detail::constant::IsC<T>::value;
+
+} // namespace is
+
+namespace isnot {
+
+template <typename T>
+concept C = !is::C<T>;
+
+} // namespace isnot
+
+//
+//
+//
+//
+//
+// Operators for `(op C)`, `(C op)`, and `(C op C)`.
+
+#if defined(ARIETTA_CONSTANT_LEFT_UNARY_OP) || defined(ARIETTA_CONSTANT_RIGHT_UNARY_OP) ||                             \
+    defined(ARIETTA_CONSTANT_BINARY_OP)
+static_assert(false, "Some macros conflict with Arietta");
+#endif
+
+#define ARIETTA_CONSTANT_LEFT_UNARY_OP(OP)                                                                             \
+  template <auto t>                                                                                                    \
+  [[nodiscard]] ARIETTA_SPECIFIER constexpr C<(OP t)> operator OP(C<t>) {                                              \
+    return {};                                                                                                         \
+  }
+#define ARIETTA_CONSTANT_RIGHT_UNARY_OP(OP)                                                                            \
+  template <auto t>                                                                                                    \
+  [[nodiscard]] ARIETTA_SPECIFIER constexpr C<(t OP)> operator OP(C<t>) {                                              \
+    return {};                                                                                                         \
+  }
+#define ARIETTA_CONSTANT_BINARY_OP(OP)                                                                                 \
+  template <auto t, auto u>                                                                                            \
+  [[nodiscard]] ARIETTA_SPECIFIER constexpr C<(t OP u)> operator OP(C<t>, C<u>) {                                      \
+    return {};                                                                                                         \
+  }
+
+ARIETTA_CONSTANT_LEFT_UNARY_OP(+);
+ARIETTA_CONSTANT_LEFT_UNARY_OP(-);
+ARIETTA_CONSTANT_LEFT_UNARY_OP(~);
+ARIETTA_CONSTANT_LEFT_UNARY_OP(!);
+ARIETTA_CONSTANT_LEFT_UNARY_OP(*);
+
+ARIETTA_CONSTANT_BINARY_OP(+);
+ARIETTA_CONSTANT_BINARY_OP(-);
+ARIETTA_CONSTANT_BINARY_OP(*);
+ARIETTA_CONSTANT_BINARY_OP(/);
+ARIETTA_CONSTANT_BINARY_OP(%);
+ARIETTA_CONSTANT_BINARY_OP(&);
+ARIETTA_CONSTANT_BINARY_OP(|);
+ARIETTA_CONSTANT_BINARY_OP(^);
+ARIETTA_CONSTANT_BINARY_OP(<<);
+ARIETTA_CONSTANT_BINARY_OP(>>);
+
+ARIETTA_CONSTANT_BINARY_OP(&&);
+ARIETTA_CONSTANT_BINARY_OP(||);
+
+ARIETTA_CONSTANT_BINARY_OP(==);
+ARIETTA_CONSTANT_BINARY_OP(!=);
+ARIETTA_CONSTANT_BINARY_OP(>);
+ARIETTA_CONSTANT_BINARY_OP(<);
+ARIETTA_CONSTANT_BINARY_OP(>=);
+ARIETTA_CONSTANT_BINARY_OP(<=);
+
+#undef ARIETTA_CONSTANT_LEFT_UNARY_OP
+#undef ARIETTA_CONSTANT_RIGHT_UNARY_OP
+#undef ARIETTA_CONSTANT_BINARY_OP
+
+//
+//
+//
+// Operator special cases between `C` and other types.
+
+#if defined(ARIETTA_CONSTANT_OP_RETURN)
+static_assert(false, "Some macros conflict with Arietta");
+#endif
+
+#define ARIETTA_CONSTANT_OP_RETURN(EXPR, EXPECT)                                                                       \
+  constexpr auto res = (EXPR);                                                                                         \
+  static_assert(                                                                                                       \
+      static_cast<decltype(EXPECT)>(res) == (EXPECT), "The given type cannot be used in the operators of `C`"          \
+  );                                                                                                                   \
+  return C<res> {}
+
+template <auto t, typename U>
+  requires(t == 0 && is::Arithmetic<std::decay_t<U>>)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator*(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t * static_cast<std::decay_t<U>>(1), 0);
+}
+
+template <typename U, auto t>
+  requires(is::Arithmetic<std::decay_t<U>> && t == 0)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator*(U &&, C<t>) {
+  ARIETTA_CONSTANT_OP_RETURN(static_cast<std::decay_t<U>>(1) * t, 0);
+}
+
+template <auto t, typename U>
+  requires(t == 0 && is::Arithmetic<std::decay_t<U>>)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator/(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t / static_cast<std::decay_t<U>>(1), 0);
+}
+
+template <typename U, auto t>
+  requires(is::Arithmetic<std::decay_t<U>> && (t == 1 || t == -1))
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator%(U &&, C<t>) {
+  ARIETTA_CONSTANT_OP_RETURN(static_cast<std::decay_t<U>>(1) % t, 0);
+}
+
+template <auto t, typename U>
+  requires(t == 0 && is::Arithmetic<std::decay_t<U>>)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator%(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t % static_cast<std::decay_t<U>>(1), 0);
+}
+
+template <auto t, typename U>
+  requires(t == 0 && is::Arithmetic<std::decay_t<U>>)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator&(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t & static_cast<std::decay_t<U>>(1), 0);
+}
+
+template <typename U, auto t>
+  requires(is::Arithmetic<std::decay_t<U>> && t == 0)
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator&(U &&, C<t>) {
+  ARIETTA_CONSTANT_OP_RETURN(static_cast<std::decay_t<U>>(1) & t, 0);
+}
+
+template <auto t, typename U>
+  requires(!static_cast<bool>(t))
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator&&(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t && static_cast<std::decay_t<U>>(true), false);
+}
+
+template <typename U, auto t>
+  requires(!static_cast<bool>(t))
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator&&(U &&, C<t>) {
+  ARIETTA_CONSTANT_OP_RETURN(static_cast<std::decay_t<U>>(true) && t, false);
+}
+
+template <auto t, typename U>
+  requires(static_cast<bool>(t))
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator||(C<t>, U &&) {
+  ARIETTA_CONSTANT_OP_RETURN(t || static_cast<std::decay_t<U>>(false), true);
+}
+
+template <typename U, auto t>
+  requires(static_cast<bool>(t))
+[[nodiscard]] ARIETTA_SPECIFIER constexpr auto operator||(U &&, C<t>) {
+  ARIETTA_CONSTANT_OP_RETURN(static_cast<std::decay_t<U>>(false) || t, true);
+}
+
+#undef ARIETTA_CONSTANT_OP_RETURN
+
+//
+//
+//
+//
+//
+namespace detail::constant {
+
+template <auto i, auto n, auto one, typename F>
+ARIETTA_SPECIFIER constexpr void ForEachImpl(F &&f) {
+  if constexpr (i < n) {
+    if constexpr (is::Invocable<F, C<i>>) {
+      static_assert(is::Void<decltype(f(C<i>{}))>, "Function must have void return type");
+      f(C<i>{});
+    } else {
+      static_assert(is::Void<decltype(f.template operator()<i>())>, "Function must have void return type");
+      f.template operator()<i>();
+    }
+
+    ForEachImpl<i + one, n, one>(std::forward<F>(f));
+  }
+}
+
+} // namespace detail::constant
+
+template <auto n, typename F>
+  requires is::Arithmetic<decltype(n)>
+ARIETTA_SPECIFIER constexpr void ForEach(C<n>, F &&f) {
+  using V = decltype(n);
+  detail::constant::ForEachImpl<static_cast<V>(0), n, static_cast<V>(1)>(std::forward<F>(f));
+}
+
+template <auto n, typename F>
+  requires is::Arithmetic<decltype(n)>
+ARIETTA_SPECIFIER constexpr void ForEach(F &&f) {
+  ForEach(C<n>{}, std::forward<F>(f));
+}
+
+template <is::C N, typename F>
+  requires is::Arithmetic<typename N::value_type>
+ARIETTA_SPECIFIER constexpr void ForEach(F &&f) {
+  ForEach(N{}, std::forward<F>(f));
+}
+
+} // namespace arietta
+
+//
+//
+//
+//
+//
+namespace std {
+
+template <auto t>
+[[nodiscard]] ARIETTA_SPECIFIER constexpr arietta::C<std::abs(t)> abs(arietta::C<t>) {
+  return {};
+}
+
+} // namespace std

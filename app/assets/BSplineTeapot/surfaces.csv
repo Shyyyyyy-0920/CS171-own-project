@@ -1,0 +1,5 @@
+surface,name,degree_u,degree_v,count_u,count_v
+0,Body,3,3,10,13
+1,Spout,3,3,7,7
+2,Handle,3,3,7,7
+3,Cap,3,3,7,13
